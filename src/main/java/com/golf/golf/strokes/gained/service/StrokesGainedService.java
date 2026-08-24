@@ -22,10 +22,13 @@ public class StrokesGainedService {
     }
 
     public double expectedStrokes(int distance, String lie) {
-        lie = lie.toLowerCase();
-        //Exp Strokes = 0 when holed
-        //maybe change logic later
-        if (lie.equals("holed")) {
+        if (lie == null || lie.isBlank()) {
+            throw new IllegalArgumentException("Lie is required");
+        }
+        lie = lie.trim().toLowerCase();
+
+        // Hole-out: explicit "holed" (old rows) or 0 ft on the green
+        if ((lie.equals("green") && distance == 0)) {
             return 0.0;
         }
 

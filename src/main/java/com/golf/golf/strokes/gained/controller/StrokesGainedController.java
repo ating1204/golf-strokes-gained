@@ -1,31 +1,61 @@
 package com.golf.golf.strokes.gained.controller;
 
-import com.golf.golf.strokes.gained.service.StrokesGainedService;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import java.util.List;
 
-@RestController //marks class to get this method to return a domain (?)
-@RequestMapping(path = "/api/v1/calculator") //url
+import com.golf.golf.strokes.gained.entity.UserShot;
+import com.golf.golf.strokes.gained.service.StrokesGainedService;
+import com.golf.golf.strokes.gained.service.UserShotService;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/v1/shots")
 public class StrokesGainedController {
 
-    private final StrokesGainedService sgService;
+    private final StrokesGainedService calculatorEngine;
+    private final UserShotService userShotService;
 
-    public StrokesGainedController(StrokesGainedService sgService) {
-        this.sgService = sgService;
+    // Inject BOTH services into the controller
+    public StrokesGainedController(StrokesGainedService calculatorEngine, UserShotService userShotService) {
+        this.calculatorEngine = calculatorEngine;
+        this.userShotService = userShotService;
     }
 
-    // Creating the web endpoint
-    @GetMapping("/shot")
-    public Double getShotSG(
+    // --- TAB 1: The Quick Calculator (Does NOT save to DB) ---
+    @GetMapping("/calculate")
+    public Double calculateOnly(
             @RequestParam int startDist,
             @RequestParam String startLie,
             @RequestParam int endDist,
             @RequestParam String endLie) {
-
-        // Passing the web URL parameters directly into your Java math function
-        return sgService.calculateSG(startDist, startLie, endDist, endLie);
+        
+        return calculatorEngine.calculateSG(startDist, startLie, endDist, endLie);
     }
 
+    // --- TAB 2: The Data Logger (Calculates AND saves to DB) ---
+    @PostMapping("/log")
+    public UserShot logShot(
+            @RequestParam Integer startDist,
+            @RequestParam String startLie,
+            @RequestParam Integer endDist,
+            @RequestParam String endLie,
+            @RequestParam Integer penaltyStrokes,
+            @RequestParam String clubUsed) {
+
+        return userShotService.logNewShot(startDist, startLie, endDist, endLie, penaltyStrokes, clubUsed);
+    }
+
+    @GetMapping
+    public List<UserShot> listShots() {
+        return userShotService.getAllShots();
+    }
+
+    @DeleteMapping("/last")
+    public UserShot undoLastShot() {
+        return userShotService.undoLastShot();
+    }
+
+    @DeleteMapping("/{id}")
+    public void deleteShot(@PathVariable Long id) {
+        userShotService.deleteShot(id);
+    }
 }

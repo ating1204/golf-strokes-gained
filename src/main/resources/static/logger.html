@@ -223,7 +223,7 @@
             fetch(API + '/' + btn.dataset.id, { method: 'DELETE' })
                 .then(response => {
                     if (!response.ok) throw new Error('Failed to delete shot.');
-                    setResult('Deleted shot #' + btn.dataset.id, true);
+                    setResult('Shot Deleted', true);
                     loadShots();
                 })
                 .catch(error => setResult(error.message, false));

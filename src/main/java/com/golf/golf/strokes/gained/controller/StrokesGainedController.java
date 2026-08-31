@@ -9,6 +9,11 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/v1/shots")
+
+
+// this is the restful api layer, handles request from clients using GET, POST, PUT, DELETE, etc
+// takes the request from the client & delegates it to the service layer (e.g. SGserv, usershotservie)
+// service layer then perfoms some business logic
 public class StrokesGainedController {
 
     private final StrokesGainedService calculatorEngine;

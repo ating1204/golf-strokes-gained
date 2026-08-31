@@ -6,15 +6,20 @@ import com.golf.golf.strokes.gained.repository.PuttingBaselineRepository;
 import com.golf.golf.strokes.gained.repository.ShotBaselineRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-
+/* 
+service layer performs business logic
+- 
+*/
 @Service
 public class StrokesGainedService {
 
-    //create  empty slots for databases
+    //note field = priv var in class that isn't in a subfunction
+    //declares two repository variables
+    // allows this service to look up putting_data and shot_data tables thru JPArepo
     private final PuttingBaselineRepository puttingRepo;
     private final ShotBaselineRepository shotRepo;
 
-    // 2. The Constructor to inject the databases
+
     @Autowired
     public StrokesGainedService(PuttingBaselineRepository puttingRepo, ShotBaselineRepository shotRepo) {
         this.puttingRepo = puttingRepo;

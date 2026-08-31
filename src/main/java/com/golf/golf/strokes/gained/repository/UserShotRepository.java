@@ -7,6 +7,8 @@ import org.springframework.stereotype.Repository;
 
 import com.golf.golf.strokes.gained.entity.UserShot;
 
+//simply interacts with database in postgres and nothing else
+    
 @Repository
 public interface UserShotRepository extends JpaRepository<UserShot, Long>{
 

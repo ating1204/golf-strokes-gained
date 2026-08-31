@@ -5,6 +5,8 @@ import org.springframework.stereotype.Repository;
 
 import com.golf.golf.strokes.gained.entity.ShotBaseline;
 
+//simply interacts with database in postgres and nothing else
+    
 @Repository
 public interface ShotBaselineRepository extends JpaRepository<ShotBaseline, Integer>{
 

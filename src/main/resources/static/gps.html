@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>GPS Shot Distance</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; color: #222; max-width: 520px; }
+        .muted { color: #888; font-size: 0.9em; }
+        select, button { padding: 10px; font-size: 15px; }
+        .big { font-size: 64px; font-weight: 700; line-height: 1.1; margin: 10px 0; }
+        .big span { font-size: 24px; font-weight: 400; color: #888; }
+        .panel { border: 1px solid #ddd; border-radius: 6px; padding: 16px; margin-bottom: 16px; }
+        .mark { width: 100%; padding: 16px; font-size: 18px; background: #28a745; color: #fff;
+                border: none; border-radius: 6px; cursor: pointer; }
+        .mark:disabled { background: #bbb; cursor: default; }
+        .secondary { background: #fff; border: 1px solid #ccc; border-radius: 4px;
+                     padding: 10px 14px; cursor: pointer; margin-top: 10px; }
+        .row { display: flex; gap: 10px; }
+        .row > * { flex: 1; }
+        table { border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 8px; }
+        th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
+        th { background: #f4f6f8; font-weight: 600; }
+        .good { color: #1a7f37; }
+        .weak { color: #c0392b; }
+    </style>
+</head>
+<body>
+
+    <nav style="margin-bottom: 20px;">
+        <a href="calc.html">Quick Calculator</a> |
+        <a href="logger.html">Shot Logger</a> |
+        <strong>GPS Distance</strong>
+    </nav>
+
+    <h2>GPS Shot Distance</h2>
+
+    <div class="panel">
+        <label for="holeSelect">Hole:</label>
+        <select id="holeSelect"><option>Loading…</option></select>
+        <p class="muted" id="courseStatus">Loading course…</p>
+    </div>
+
+    <div class="panel">
+        <p class="muted">Distance from marked point</p>
+        <div class="big"><span id="distance">—</span> <span>yds</span></div>
+        <p class="muted" id="gpsStatus">Waiting for GPS…</p>
+        <button type="button" class="mark" id="markBtn" disabled>Mark point A</button>
+        <div class="row">
+            <button type="button" class="secondary" id="recordBtn" disabled>Record shot</button>
+            <button type="button" class="secondary" id="resetBtn">Reset</button>
+        </div>
+    </div>
+
+    <div class="panel">
+        <strong>This session</strong>
+        <p class="muted" id="listStatus">No shots recorded yet.</p>
+        <table id="shotTable" style="display: none;">
+            <thead>
+                <tr><th>#</th><th>Hole</th><th>Yards</th><th>GPS ±</th></tr>
+            </thead>
+            <tbody id="shotTableBody"></tbody>
+        </table>
+    </div>
+
+    <script>
+        const EARTH_RADIUS_M = 6371008.8;   // mean Earth radius
+        const METERS_TO_YARDS = 1.0936133;
+
+        let pointA = null;       // {lat, lng} of the marked start point
+        let currentFix = null;   // latest GPS reading
+        const recorded = [];     // measurements taken this session (memory only, not saved)
+
+        // Great-circle distance between two lat/lng points, in yards.
+        // Accurate to well under a yard at golf distances — GPS error dominates.
+        function haversineYards(a, b) {
+            const toRad = deg => deg * Math.PI / 180;
+            const lat1 = toRad(a.lat), lat2 = toRad(b.lat);
+            const dLat = toRad(b.lat - a.lat);
+            const dLng = toRad(b.lng - a.lng);
+            const h = Math.sin(dLat / 2) ** 2 +
+                      Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+            const meters = 2 * EARTH_RADIUS_M * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+            return meters * METERS_TO_YARDS;
+        }
+
+        function loadCourse() {
+            fetch('/api/v1/courses/1/bundle')
+                .then(r => {
+                    if (!r.ok) throw new Error('Could not load course');
+                    return r.json();
+                })
+                .then(course => {
+                    const sel = document.getElementById('holeSelect');
+                    sel.innerHTML = '';
+                    course.holes.forEach(h => {
+                        const opt = document.createElement('option');
+                        opt.value = h.holeNumber;
+                        opt.text = 'Hole ' + h.holeNumber + ' (par ' + h.par + ')';
+                        sel.appendChild(opt);
+                    });
+                    document.getElementById('courseStatus').innerText =
+                        course.name + ' — ' + course.city + ', ' + course.state;
+                })
+                .catch(err => {
+                    document.getElementById('courseStatus').innerText = err.message;
+                });
+        }
+
+        function onPosition(pos) {
+            currentFix = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+
+            // coords.accuracy is the radius of 68% confidence, in meters
+            const accYds = pos.coords.accuracy * METERS_TO_YARDS;
+            const cls = accYds <= 6 ? 'good' : 'weak';
+            document.getElementById('gpsStatus').innerHTML =
+                'GPS accuracy <span class="' + cls + '">±' + accYds.toFixed(0) + ' yds</span>';
+
+            document.getElementById('markBtn').disabled = false;
+            updateDistance();
+        }
+
+        function onPositionError(err) {
+            document.getElementById('gpsStatus').innerText = 'GPS error: ' + err.message;
+        }
+
+        function updateDistance() {
+            const el = document.getElementById('distance');
+            if (!pointA || !currentFix) {
+                el.innerText = '—';
+                return;
+            }
+            el.innerText = haversineYards(pointA, currentFix).toFixed(0);
+        }
+
+        function renderList() {
+            const status = document.getElementById('listStatus');
+            const table = document.getElementById('shotTable');
+            const body = document.getElementById('shotTableBody');
+
+            if (!recorded.length) {
+                status.innerText = 'No shots recorded yet.';
+                table.style.display = 'none';
+                return;
+            }
+            status.innerText = recorded.length + ' shot' + (recorded.length === 1 ? '' : 's');
+            table.style.display = '';
+            body.innerHTML = '';
+            recorded.forEach((s, i) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = '<td>' + (i + 1) + '</td><td>' + s.hole + '</td>' +
+                               '<td>' + s.yards + '</td><td>±' + s.accuracy + '</td>';
+                body.appendChild(tr);
+            });
+        }
+
+        document.getElementById('markBtn').addEventListener('click', function() {
+            if (!currentFix) return;
+            pointA = currentFix;
+            document.getElementById('markBtn').innerText = 'Re-mark point A (here)';
+            document.getElementById('recordBtn').disabled = false;
+            updateDistance();
+        });
+
+        // Record the current distance, then make this spot the new point A,
+        // so you can walk a hole shot by shot without re-marking.
+        document.getElementById('recordBtn').addEventListener('click', function() {
+            if (!pointA || !currentFix) return;
+            recorded.push({
+                hole: document.getElementById('holeSelect').value,
+                yards: haversineYards(pointA, currentFix).toFixed(0),
+                accuracy: document.getElementById('gpsStatus').innerText.replace(/\D/g, '')
+            });
+            pointA = currentFix;
+            renderList();
+            updateDistance();
+        });
+
+        document.getElementById('resetBtn').addEventListener('click', function() {
+            pointA = null;
+            document.getElementById('markBtn').innerText = 'Mark point A';
+            document.getElementById('recordBtn').disabled = true;
+            updateDistance();
+        });
+
+        if (!navigator.geolocation) {
+            document.getElementById('gpsStatus').innerText = 'This browser has no GPS support.';
+        } else {
+            navigator.geolocation.watchPosition(onPosition, onPositionError, {
+                enableHighAccuracy: true,  // use the GPS chip, not wifi triangulation
+                maximumAge: 0,             // never reuse a stale fix
+                timeout: 15000
+            });
+        }
+
+        loadCourse();
+    </script>
+</body>
+</html>

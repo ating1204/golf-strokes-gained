@@ -30,7 +30,7 @@ public class CourseMapService {
         this.holeRepo = holeRepo;
         this.holeMapRepo = holeMapRepo;
     }
-
+    // returns json file w/ hole detaisl & all info for every hole
     public CourseBundleDto getCourseBundle(Long courseId) {
         Course course = courseRepo.findById(courseId)
             .orElseThrow(() -> new IllegalArgumentException("No course with id " + courseId));
@@ -54,7 +54,7 @@ public class CourseMapService {
         );
     }
 
-    // null when a hole has no map row yet — the frontend treats that as "no image"
+    // for when theres no map for some hole
     private MapDto toMapDto(HoleMap m) {
         if (m == null) {
             return null;

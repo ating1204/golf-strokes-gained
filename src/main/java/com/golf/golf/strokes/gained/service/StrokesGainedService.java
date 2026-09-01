@@ -15,7 +15,7 @@ public class StrokesGainedService {
 
     //note field = priv var in class that isn't in a subfunction
     //declares two repository variables
-    // allows this service to look up putting_data and shot_data tables thru JPArepo
+    //allows this service to look up putting_data and shot_data tables thru JPArepo
     private final PuttingBaselineRepository puttingRepo;
     private final ShotBaselineRepository shotRepo;
 
@@ -32,12 +32,12 @@ public class StrokesGainedService {
         }
         lie = lie.trim().toLowerCase();
 
-        // Hole-out: explicit "holed" (old rows) or 0 ft on the green
+        //shot is holed => distance = 0
         if ((lie.equals("green") && distance == 0)) {
             return 0.0;
         }
 
-        //Putting has diff ES table
+        //Putting has diff SG table
         if (lie.equals("green")) {
             PuttingBaseline putt = puttingRepo.findById(distance)
                 .orElseThrow(() -> new IllegalArgumentException(

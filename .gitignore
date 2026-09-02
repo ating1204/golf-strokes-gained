@@ -4,6 +4,12 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
+### Google Maps (?) still nec? ###
+src/main/resources/static/maps/
+
+### fat file of course map ###
+tools/stanfordCourse.jpg
+
 ### STS ###
 .apt_generated
 .classpath

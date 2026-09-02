@@ -12,7 +12,7 @@ tools/stanfordCourse.jpg
 tools/holes/
 
 ### all the html files ###
-/static/
+src/main/resources/static/
 
 
 ### STS ###
@@ -43,4 +43,4 @@ build/
 ### VS Code ###
 .vscode/
 .DS_Store
-.DS_Store
+

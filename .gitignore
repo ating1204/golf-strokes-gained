@@ -9,6 +9,7 @@ src/main/resources/static/maps/
 
 ### fat file of course map ###
 tools/stanfordCourse.jpg
+tools/holes/
 
 ### STS ###
 .apt_generated

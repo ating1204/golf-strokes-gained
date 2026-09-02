@@ -23,6 +23,9 @@
         th { background: #f4f6f8; font-weight: 600; }
         .good { color: #1a7f37; }
         .weak { color: #c0392b; }
+        #mapWrap { text-align: center; background: #111; border-radius: 6px; overflow: hidden; }
+        #holeCanvas { max-height: 70vh; max-width: 100%; display: block; margin: 0 auto;
+                      cursor: crosshair; }
     </style>
 </head>
 <body>
@@ -42,7 +45,22 @@
     </div>
 
     <div class="panel">
-        <p class="muted">Distance from marked point</p>
+        <div id="mapWrap"><canvas id="holeCanvas"></canvas></div>
+        <p class="muted" id="mapStatus">No hole loaded.</p>
+    </div>
+
+    <div class="panel">
+        <p class="muted">Tap two points on the map to measure</p>
+        <div class="big"><span id="measureDist">—</span> <span>yds</span></div>
+        <div class="row">
+            <button type="button" class="secondary" id="measureBtn">Measure: off</button>
+            <button type="button" class="secondary" id="clearMeasureBtn">Clear</button>
+        </div>
+        <p class="muted" id="measureStatus"></p>
+    </div>
+
+    <div class="panel">
+        <p class="muted">Distance from marked point (GPS)</p>
         <div class="big"><span id="distance">—</span> <span>yds</span></div>
         <p class="muted" id="gpsStatus">Waiting for GPS…</p>
         <button type="button" class="mark" id="markBtn" disabled>Mark point A</button>
@@ -64,15 +82,22 @@
     </div>
 
     <script>
-        const EARTH_RADIUS_M = 6371008.8;   // mean Earth radius
+        const EARTH_RADIUS_M = 6371008.8;
         const METERS_TO_YARDS = 1.0936133;
+        const M_PER_DEG_LAT = 111195;
+        const CANVAS_H = 900;              // internal canvas height; CSS scales it to fit
 
-        let pointA = null;       // {lat, lng} of the marked start point
-        let currentFix = null;   // latest GPS reading
-        const recorded = [];     // measurements taken this session (memory only, not saved)
+        let pointA = null;        // {lat, lng} marked start point (GPS)
+        let currentFix = null;    // latest GPS reading
+        let m1 = null, m2 = null; // tapped measure points
+        let measureMode = false;
+        let holesByNumber = {};
+        let currentMap = null;    // map DTO of the selected hole
+        let img = null;
+        const recorded = [];
 
-        // Great-circle distance between two lat/lng points, in yards.
-        // Accurate to well under a yard at golf distances — GPS error dominates.
+        // Great-circle distance in yards. Well under a yard of error at golf
+        // distances -- GPS noise dominates by far.
         function haversineYards(a, b) {
             const toRad = deg => deg * Math.PI / 180;
             const lat1 = toRad(a.lat), lat2 = toRad(b.lat);
@@ -84,8 +109,40 @@
             return meters * METERS_TO_YARDS;
         }
 
+        // Where a coordinate falls on the hole image. Each image is rotated by
+        // bearingDeg so the hole plays bottom-to-top, so the ground offset has to be
+        // rotated onto the image's own axes before scaling to pixels.
+        function latLngToImagePx(map, lat, lng) {
+            const clat = map.center.lat, clng = map.center.lng;
+            const north = (lat - clat) * M_PER_DEG_LAT;
+            const east  = (lng - clng) * M_PER_DEG_LAT * Math.cos(clat * Math.PI / 180);
+            const t = map.bearingDeg * Math.PI / 180;
+            const across = east * Math.cos(t) - north * Math.sin(t);   // rightward in image
+            const along  = east * Math.sin(t) + north * Math.cos(t);   // toward the green
+            return {
+                x: map.widthPx  / 2 + across / map.metersPerPixel,
+                y: map.heightPx / 2 - along  / map.metersPerPixel
+            };
+        }
+
+        // Inverse of the above: which coordinate does an image pixel sit on?
+        function imagePxToLatLng(map, x, y) {
+            const across = (x - map.widthPx  / 2) * map.metersPerPixel;
+            const along  = (map.heightPx / 2 - y) * map.metersPerPixel;
+            const t = map.bearingDeg * Math.PI / 180;
+            const east  =  across * Math.cos(t) + along * Math.sin(t);
+            const north = -across * Math.sin(t) + along * Math.cos(t);
+            const clat = map.center.lat, clng = map.center.lng;
+            return {
+                lat: clat + north / M_PER_DEG_LAT,
+                lng: clng + east / (M_PER_DEG_LAT * Math.cos(clat * Math.PI / 180))
+            };
+        }
+
         function loadCourse() {
-            fetch('/api/v1/courses/1/bundle')
+            // 'no-cache' means "revalidate before using the cached copy" -- the bundle
+            // is sent with a 24h max-age, and without this a stale one is served silently.
+            fetch('/api/v1/courses/1/bundle', { cache: 'no-cache' })
                 .then(r => {
                     if (!r.ok) throw new Error('Could not load course');
                     return r.json();
@@ -94,6 +151,7 @@
                     const sel = document.getElementById('holeSelect');
                     sel.innerHTML = '';
                     course.holes.forEach(h => {
+                        holesByNumber[h.holeNumber] = h;
                         const opt = document.createElement('option');
                         opt.value = h.holeNumber;
                         opt.text = 'Hole ' + h.holeNumber + ' (par ' + h.par + ')';
@@ -101,23 +159,105 @@
                     });
                     document.getElementById('courseStatus').innerText =
                         course.name + ' — ' + course.city + ', ' + course.state;
+                    selectHole();
                 })
                 .catch(err => {
                     document.getElementById('courseStatus').innerText = err.message;
                 });
         }
 
+        function selectHole() {
+            const hole = holesByNumber[document.getElementById('holeSelect').value];
+            const canvas = document.getElementById('holeCanvas');
+            m1 = null; m2 = null;              // measurements belong to one hole
+            updateMeasure();
+            if (!hole || !hole.map) {
+                currentMap = null; img = null;
+                canvas.width = 0; canvas.height = 0;
+                document.getElementById('mapStatus').innerText = 'No map for this hole.';
+                return;
+            }
+            currentMap = hole.map;
+            const scale = CANVAS_H / currentMap.heightPx;
+            canvas.height = CANVAS_H;
+            canvas.width = Math.round(currentMap.widthPx * scale);
+            document.getElementById('mapStatus').innerText = 'Loading image…';
+            img = new Image();
+            img.onload = () => { document.getElementById('mapStatus').innerText = ''; draw(); };
+            img.onerror = () => { document.getElementById('mapStatus').innerText = 'Image failed to load.'; };
+            img.src = currentMap.imageUrl;
+        }
+
+        function bubble(ctx, text, x, y, fill) {
+            ctx.font = 'bold 22px Arial';
+            const w = ctx.measureText(text).width + 20;
+            ctx.fillStyle = 'rgba(0,0,0,0.75)';
+            ctx.beginPath(); ctx.roundRect(x - w / 2, y - 18, w, 36, 18); ctx.fill();
+            ctx.fillStyle = fill;
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(text, x, y);
+        }
+
+        function draw() {
+            const canvas = document.getElementById('holeCanvas');
+            if (!currentMap || !img || !img.complete || !canvas.width) return;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+            const s = canvas.width / currentMap.widthPx;   // image px -> canvas px
+            const toCanvas = p => {
+                const q = latLngToImagePx(currentMap, p.lat, p.lng);
+                return { x: q.x * s, y: q.y * s };
+            };
+
+            // --- tapped measurement (amber, dashed) ---
+            const p1 = m1 ? toCanvas(m1) : null;
+            const p2 = m2 ? toCanvas(m2) : null;
+            if (p1 && p2) {
+                ctx.strokeStyle = '#ffd43b'; ctx.lineWidth = 3;
+                ctx.setLineDash([10, 6]);
+                ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+                ctx.setLineDash([]);
+                bubble(ctx, haversineYards(m1, m2).toFixed(0) + ' y',
+                       (p1.x + p2.x) / 2, (p1.y + p2.y) / 2, '#ffd43b');
+            }
+            [p1, p2].forEach(p => {
+                if (!p) return;
+                ctx.fillStyle = '#ffd43b'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.arc(p.x, p.y, 8, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+            });
+
+            // --- GPS measurement (white, solid) ---
+            const a = pointA ? toCanvas(pointA) : null;
+            const b = currentFix ? toCanvas(currentFix) : null;
+            if (a && b) {
+                ctx.strokeStyle = 'rgba(255,255,255,0.95)'; ctx.lineWidth = 3;
+                ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+                bubble(ctx, haversineYards(pointA, currentFix).toFixed(0) + ' y',
+                       (a.x + b.x) / 2, (a.y + b.y) / 2, '#fff');
+            }
+            if (a) {
+                ctx.fillStyle = '#e03131'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 3;
+                ctx.beginPath(); ctx.arc(a.x, a.y, 9, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+            }
+            if (b) {
+                ctx.fillStyle = '#1c7ed6'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 4;
+                ctx.beginPath(); ctx.arc(b.x, b.y, 11, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+                const off = b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height;
+                document.getElementById('mapStatus').innerText =
+                    off ? 'You are outside this hole — wrong hole selected?' : '';
+            }
+        }
+
         function onPosition(pos) {
             currentFix = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-
-            // coords.accuracy is the radius of 68% confidence, in meters
             const accYds = pos.coords.accuracy * METERS_TO_YARDS;
             const cls = accYds <= 6 ? 'good' : 'weak';
             document.getElementById('gpsStatus').innerHTML =
                 'GPS accuracy <span class="' + cls + '">±' + accYds.toFixed(0) + ' yds</span>';
-
             document.getElementById('markBtn').disabled = false;
             updateDistance();
+            draw();
         }
 
         function onPositionError(err) {
@@ -125,19 +265,21 @@
         }
 
         function updateDistance() {
-            const el = document.getElementById('distance');
-            if (!pointA || !currentFix) {
-                el.innerText = '—';
-                return;
-            }
-            el.innerText = haversineYards(pointA, currentFix).toFixed(0);
+            document.getElementById('distance').innerText =
+                (pointA && currentFix) ? haversineYards(pointA, currentFix).toFixed(0) : '—';
+        }
+
+        function updateMeasure() {
+            document.getElementById('measureDist').innerText =
+                (m1 && m2) ? haversineYards(m1, m2).toFixed(0) : '—';
+            document.getElementById('measureStatus').innerText =
+                !m1 ? '' : (m2 ? '' : 'Tap the second point.');
         }
 
         function renderList() {
             const status = document.getElementById('listStatus');
             const table = document.getElementById('shotTable');
             const body = document.getElementById('shotTableBody');
-
             if (!recorded.length) {
                 status.innerText = 'No shots recorded yet.';
                 table.style.display = 'none';
@@ -154,16 +296,45 @@
             });
         }
 
+        document.getElementById('holeSelect').addEventListener('change', selectHole);
+
+        document.getElementById('holeCanvas').addEventListener('click', function(e) {
+            if (!measureMode || !currentMap) return;
+            const r = this.getBoundingClientRect();
+            // click arrives in CSS pixels: convert to canvas pixels, then to image pixels
+            const cx = (e.clientX - r.left) * (this.width / r.width);
+            const cy = (e.clientY - r.top) * (this.height / r.height);
+            const s = this.width / currentMap.widthPx;
+            const p = imagePxToLatLng(currentMap, cx / s, cy / s);
+            if (!m1 || (m1 && m2)) { m1 = p; m2 = null; }   // a third tap starts over
+            else { m2 = p; }
+            updateMeasure();
+            draw();
+        });
+
+        document.getElementById('measureBtn').addEventListener('click', function() {
+            measureMode = !measureMode;
+            this.innerText = 'Measure: ' + (measureMode ? 'ON — tap two points' : 'off');
+            this.style.background = measureMode ? '#ffe066' : '#fff';
+        });
+
+        document.getElementById('clearMeasureBtn').addEventListener('click', function() {
+            m1 = null; m2 = null;
+            updateMeasure();
+            draw();
+        });
+
         document.getElementById('markBtn').addEventListener('click', function() {
             if (!currentFix) return;
             pointA = currentFix;
-            document.getElementById('markBtn').innerText = 'Re-mark point A (here)';
+            this.innerText = 'Re-mark point A (here)';
             document.getElementById('recordBtn').disabled = false;
             updateDistance();
+            draw();
         });
 
-        // Record the current distance, then make this spot the new point A,
-        // so you can walk a hole shot by shot without re-marking.
+        // Record the distance, then make this spot the new point A so you can walk a
+        // hole shot by shot without re-marking.
         document.getElementById('recordBtn').addEventListener('click', function() {
             if (!pointA || !currentFix) return;
             recorded.push({
@@ -174,6 +345,7 @@
             pointA = currentFix;
             renderList();
             updateDistance();
+            draw();
         });
 
         document.getElementById('resetBtn').addEventListener('click', function() {
@@ -181,14 +353,15 @@
             document.getElementById('markBtn').innerText = 'Mark point A';
             document.getElementById('recordBtn').disabled = true;
             updateDistance();
+            draw();
         });
 
         if (!navigator.geolocation) {
             document.getElementById('gpsStatus').innerText = 'This browser has no GPS support.';
         } else {
             navigator.geolocation.watchPosition(onPosition, onPositionError, {
-                enableHighAccuracy: true,  // use the GPS chip, not wifi triangulation
-                maximumAge: 0,             // never reuse a stale fix
+                enableHighAccuracy: true,
+                maximumAge: 0,
                 timeout: 15000
             });
         }

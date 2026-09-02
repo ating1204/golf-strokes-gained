@@ -2,6 +2,7 @@ package com.golf.golf.strokes.gained.entity;
 
 import java.time.LocalDate;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 
@@ -10,58 +11,60 @@ import jakarta.persistence.Id;
 public class HoleMap {
 
     @Id
-    private Long holeId;        // PK and FK to hole — one map row per hole
+    private Long holeId;
 
-    private String imagePath;   // e.g. /maps/stanford/hole01.png
-    private Double nwLat;       // real-world coords of the image's top-left corner
-    private Double nwLng;
-    private Double seLat;       // bottom-right corner
-    private Double seLng;
+    private String imagePath;
+    private Double centerLat;
+    private Double centerLng;
+    private Double bearingDeg;
+
+    @Column(name = "m_per_px")         
+    private Double metersPerPixel;
+
     private Integer widthPx;
     private Integer heightPx;
     private String imagerySource;
     private LocalDate imageryDate;
 
-    public HoleMap() {
+    public HoleMap() {}
+
+    public Long getHoleId() { 
+        return holeId; 
     }
 
-    public Long getHoleId() {
-        return holeId;
+    public String getImagePath() { 
+        return imagePath; 
     }
 
-    public String getImagePath() {
-        return imagePath;
+    public Double getCenterLat() { 
+        return centerLat; 
     }
 
-    public Double getNwLat() {
-        return nwLat;
+    public Double getCenterLng() { 
+        return centerLng; 
     }
 
-    public Double getNwLng() {
-        return nwLng;
+    public Double getBearingDeg() { 
+        return bearingDeg; 
     }
 
-    public Double getSeLat() {
-        return seLat;
+    public Double getMetersPerPixel() { 
+        return metersPerPixel; 
     }
 
-    public Double getSeLng() {
-        return seLng;
+    public Integer getWidthPx() { 
+        return widthPx; 
     }
 
-    public Integer getWidthPx() {
-        return widthPx;
+    public Integer getHeightPx() { 
+        return heightPx; 
     }
 
-    public Integer getHeightPx() {
-        return heightPx;
+    public String getImagerySource() { 
+        return imagerySource; 
     }
-
-    public String getImagerySource() {
-        return imagerySource;
-    }
-
-    public LocalDate getImageryDate() {
-        return imageryDate;
+    
+    public LocalDate getImageryDate() { 
+        return imageryDate; 
     }
 }

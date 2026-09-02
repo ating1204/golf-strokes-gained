@@ -2,8 +2,8 @@ import math, os, time, io, urllib.request
 from PIL import Image
 
 # NE and SW corner of stanford golf course + buffer
-LA0, LA1 = 37.41590, 37.42933          # south, north 
-LO0, LO1 = -122.19265, -122.18175      # west,  east
+LA0, LA1 = 37.41240, 37.43240          # south, north
+LO0, LO1 = -122.19615, -122.17815      # west,  east
 GROUND_MPP = 0.20                     
 MAX_TILE   = 2048                      # pixel limit for ArcGIS 
 OUT        = "stanfordCourse.jpg" # not included in git

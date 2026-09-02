@@ -8,7 +8,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 /* 
 service layer performs business logic
-- 
 */
 @Service
 public class StrokesGainedService {
